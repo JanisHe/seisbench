@@ -478,6 +478,10 @@ class VariableLengthPhaseNet(PhaseNet):
         norm_axis=(-1,),
         output_activation="softmax",
         empty=False,
+        depth=5,
+        kernel_size=7,
+        filters_root=8,
+        stride=4,
         **kwargs,
     ):
         citation = (
@@ -503,10 +507,10 @@ class VariableLengthPhaseNet(PhaseNet):
         self.classes = classes
         self.norm = norm
         self.norm_axis = tuple(norm_axis)
-        self.depth = 5
-        self.kernel_size = 7
-        self.stride = 4
-        self.filters_root = 8
+        self.depth = depth
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.filters_root = filters_root
         self.activation = torch.relu
 
         if output_activation == "softmax":
