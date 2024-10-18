@@ -1007,13 +1007,21 @@ def test_annotate_phasenet():
 @pytest.mark.parametrize("output_activation", ["sigmoid", "softmax"])
 @pytest.mark.parametrize("norm", ["std", "peak"])
 @pytest.mark.parametrize("in_samples", [1337, 3001, 6000])
-def test_annotate_variablelengthphasenet(in_samples, norm, output_activation):
+@pytest.mark.parametrize("kernel_size", [7, 10, 11])
+@pytest.mark.parametrize("stride", [4, 7])
+@pytest.mark.parametrize("activation", [torch.relu, torch.nn.ELU()])
+def test_annotate_variablelengthphasenet(
+    in_samples, norm, output_activation, kernel_size, stride, activation
+):
     # Tests that the annotate/classify functions run without crashes and annotate produces an output
     model = seisbench.models.VariableLengthPhaseNet(
         sampling_rate=400,
         in_samples=in_samples,
         norm=norm,
         output_activation=output_activation,
+        kernel_size=kernel_size,
+        stride=stride,
+        activation=activation,
     )  # Higher sampling rate ensures trace is long enough
     stream = obspy.read()
 
