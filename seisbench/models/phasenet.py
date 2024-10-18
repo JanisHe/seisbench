@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from packaging import version
+from torchsummary import summary
 
 import seisbench.util as sbu
 
@@ -482,6 +483,8 @@ class VariableLengthPhaseNet(PhaseNet):
         kernel_size=7,
         filters_root=8,
         stride=4,
+        drop_rate=0,
+        activation=torch.relu,
         **kwargs,
     ):
         citation = (
@@ -511,7 +514,8 @@ class VariableLengthPhaseNet(PhaseNet):
         self.kernel_size = kernel_size
         self.stride = stride
         self.filters_root = filters_root
-        self.activation = torch.relu
+        self.activation = activation
+        self.dropout = nn.Dropout(p=drop_rate)
 
         if output_activation == "softmax":
             self.output_activation = torch.nn.Softmax(dim=1)
@@ -564,8 +568,8 @@ class VariableLengthPhaseNet(PhaseNet):
 
                 self.down_branch.append(nn.ModuleList([conv_same, bn1, conv_down, bn2]))
 
-            for i in range(self.depth - 1):
-                filters = int(2 ** (3 - i) * self.filters_root)
+            for i in range(self.depth - 2, -1, -1):
+                filters = int(2**i * self.filters_root)
                 conv_up = nn.ConvTranspose1d(
                     last_filters, filters, self.kernel_size, self.stride, bias=False
                 )
@@ -590,6 +594,7 @@ class VariableLengthPhaseNet(PhaseNet):
 
     def _forward_single(self, x):
         x = self.activation(self.in_bn(self.inc(x)))
+        x = self.dropout(x)
 
         skips = []
         for i, (conv_same, bn1, conv_down, bn2) in enumerate(self.down_branch):
@@ -599,12 +604,15 @@ class VariableLengthPhaseNet(PhaseNet):
                 skips.append(x)
                 x = self.activation(bn2(conv_down(x)))
 
+            x = self.dropout(x)
+
         for i, ((conv_up, bn1, conv_same, bn2), skip) in enumerate(
             zip(self.up_branch, skips[::-1])
         ):
             x = self.activation(bn1(conv_up(x)))
             x = self._merge_skip(skip, x)
             x = self.activation(bn2(conv_same(x)))
+            x = self.dropout(x)
 
         return self.out(x)
 
