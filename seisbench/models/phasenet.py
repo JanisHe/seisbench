@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from packaging import version
-from torchsummary import summary
 
 import seisbench.util as sbu
 
