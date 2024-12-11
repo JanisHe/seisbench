@@ -469,20 +469,21 @@ class VariableLengthPhaseNet(PhaseNet):
 
     def __init__(
         self,
-        in_samples=600,
-        in_channels=3,
-        classes=3,
-        phases="PSN",
-        sampling_rate=100,
-        norm="peak",
-        norm_axis=(-1,),
-        output_activation="softmax",
-        empty=False,
-        depth=5,
-        kernel_size=7,
-        filters_root=8,
-        stride=4,
-        drop_rate=0,
+        in_samples: int = 600,
+        in_channels: int = 3,
+        classes: int = 3,
+        phases: str = "PSN",
+        sampling_rate: float = 100,
+        norm: str = "peak",
+        filter_factor: int = 1,
+        norm_axis: tuple = (-1,),
+        output_activation: str = "softmax",
+        empty: bool = False,
+        depth: int = 5,
+        kernel_size: int = 7,
+        filters_root: int = 8,
+        stride: int = 4,
+        drop_rate: float = 0,
         activation=torch.relu,
         **kwargs,
     ):
@@ -508,6 +509,7 @@ class VariableLengthPhaseNet(PhaseNet):
         self.in_channels = in_channels
         self.classes = classes
         self.norm = norm
+        self.filter_factor = filter_factor
         self.norm_axis = tuple(norm_axis)
         self.depth = depth
         self.kernel_size = kernel_size
@@ -535,53 +537,76 @@ class VariableLengthPhaseNet(PhaseNet):
             self.out = None
         else:
             self.inc = nn.Conv1d(
-                self.in_channels, self.filters_root, self.kernel_size, padding="same"
+                in_channels=self.in_channels,
+                out_channels=self.filters_root * self.filter_factor,
+                kernel_size=self.kernel_size,
+                padding="same",
             )
-            self.in_bn = nn.BatchNorm1d(8, eps=1e-3)
+            self.in_bn = nn.BatchNorm1d(
+                num_features=self.filters_root * self.filter_factor, eps=1e-3
+            )
 
             self.down_branch = nn.ModuleList()
             self.up_branch = nn.ModuleList()
 
             last_filters = self.filters_root
             for i in range(self.depth):
-                filters = int(2**i * self.filters_root)
+                filters = int(2**i * self.filters_root * self.filter_factor)
                 conv_same = nn.Conv1d(
-                    last_filters, filters, self.kernel_size, padding="same", bias=False
+                    in_channels=last_filters,
+                    out_channels=filters,
+                    kernel_size=self.kernel_size,
+                    padding="same",
+                    bias=False,
                 )
                 last_filters = filters
-                bn1 = nn.BatchNorm1d(filters, eps=1e-3)
+                bn1 = nn.BatchNorm1d(num_features=filters, eps=1e-3)
+
                 if i == self.depth - 1:
                     conv_down = None
                     bn2 = None
                 else:
                     padding = self.kernel_size // 2
                     conv_down = nn.Conv1d(
-                        filters,
-                        filters,
-                        self.kernel_size,
-                        self.stride,
+                        in_channels=filters,
+                        out_channels=filters,
+                        kernel_size=self.kernel_size,
+                        stride=self.stride,
                         padding=padding,
                         bias=False,
                     )
-                    bn2 = nn.BatchNorm1d(filters, eps=1e-3)
+                    bn2 = nn.BatchNorm1d(num_features=filters, eps=1e-3)
 
                 self.down_branch.append(nn.ModuleList([conv_same, bn1, conv_down, bn2]))
 
             for i in range(self.depth - 2, -1, -1):
-                filters = int(2**i * self.filters_root)
+                filters = int(2**i * self.filters_root * self.filter_factor)
                 conv_up = nn.ConvTranspose1d(
-                    last_filters, filters, self.kernel_size, self.stride, bias=False
+                    in_channels=last_filters,
+                    out_channels=filters,
+                    kernel_size=self.kernel_size,
+                    stride=self.stride,
+                    bias=False,
                 )
                 last_filters = filters
-                bn1 = nn.BatchNorm1d(filters, eps=1e-3)
+                bn1 = nn.BatchNorm1d(num_features=filters, eps=1e-3)
                 conv_same = nn.Conv1d(
-                    2 * filters, filters, self.kernel_size, padding="same", bias=False
+                    in_channels=2 * filters,
+                    out_channels=filters,
+                    kernel_size=self.kernel_size,
+                    padding="same",
+                    bias=False,
                 )
-                bn2 = nn.BatchNorm1d(filters, eps=1e-3)
+                bn2 = nn.BatchNorm1d(num_features=filters, eps=1e-3)
 
                 self.up_branch.append(nn.ModuleList([conv_up, bn1, conv_same, bn2]))
 
-            self.out = nn.Conv1d(last_filters, self.classes, 1, padding="same")
+            self.out = nn.Conv1d(
+                in_channels=last_filters,
+                out_channels=self.classes,
+                kernel_size=1,
+                padding="same",
+            )
 
     def forward(self, x, logits=False):
         x = self._forward_single(x)
