@@ -13,6 +13,8 @@ from .base import Conv1dSame, WaveformModel, _cache_migration_v0_v3
 
 
 class PhaseNet(WaveformModel):
+    # TODO: Instead of using this static implementation use the on of VariablPhaseNet as base class for PhaseNet
+    #       which then uses the default parameters for PhaseNet
     """
     .. document_args:: seisbench.models PhaseNet
     """
