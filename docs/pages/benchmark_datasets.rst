@@ -55,6 +55,34 @@ Depending on user needs and case study, the dataset can be accessed using the fo
 
     https://doi.org/10.13127/AI/AQUILA2009
 
+CEED
+-----
+
+.. figure::  ../_static/ceed_overview.png
+   :align:   center
+
+The California Earthquake Event Dataset (:py:class:`~seisbench.data.ceed.CEED`),
+compiles records from the Northern (NCEDC) and Southern (SCEDC) California Earthquake Data Centers.
+The dataset contains waveforms from ~650,000 events for a total of 4.1 million traces.
+It covers the years from 1987 to 2023. Each traces contains manually labels P and S arrivals.
+In addition, the dataset features rich metadata. Several metadata columns have the suffix ``_list``.
+These contain a variable amount of data points and are used, for example, to describe additional phase arrivals in
+traces. The dataset comes with a chronological train/dev/test split.
+As of now, there is no direct way of using this information in SeisBench, but the information is contained
+in the metadata. Further details on how to use the dataset, also without SeisBench, are available on the HuggingFace
+site: https://huggingface.co/datasets/AI4EPS/CEED.
+
+.. warning::
+
+    Dataset size: waveforms.hdf5 **~575 Gb**, metadata.csv **~2.1 Gb**.
+
+.. admonition:: Citation
+
+    Zhu, W., Wang, H., Rong, B., Yu, E., Zuzlewski, S., Tepp, G., ... & Allen, R. M. (2025).
+    California Earthquake Dataset for Machine Learning and Cloud Computing.
+    arXiv preprint arXiv:2502.11500.
+    https://arxiv.org/abs/2502.11500
+
 CREW
 -----
 
@@ -80,6 +108,39 @@ models for the analysis of earthquakes recorded at regional distances.
     Seismica, 3(1).
     https://doi.org/10.26443/seismica.v3i1.1049
 
+CWA
+-----
+
+.. figure::  ../_static/cwa_stations.png
+   :align:   center
+
+.. figure::  ../_static/cwa_events.png
+   :align:   center
+
+The :py:class:`~seisbench.data.cwa.CWA` dataset includes a large number of seismic events, especially high-magnitude.
+It is a comprehensive set of events collected by the Central Weather Bureau in Taiwan.
+There are two seismographic network: CWASN and TSMIP in the dataset.
+The dataset version in SeisBench combines both seismic networks.
+The CWA benchmark features over 40 attributes and ∼500,000 seismograms,
+providing valuable data labels for various seismology-related tasks.
+In the future, updated versions of this dataset are planned to ensure its relevance and utility.
+For more information see: https://scweb.cwa.gov.tw/en-US
+
+.. warning::
+
+    Dataset size: ~494GB (~177GB of noise samples)
+
+    The tutorial on loading dataset properly is in the dataset cards:
+
+    * Merged-CWA: https://huggingface.co/datasets/NLPLabNTUST/Merged-CWA
+    * Merged-CWA-Noise: https://huggingface.co/datasets/NLPLabNTUST/Merged-CWA-Noise
+
+.. admonition:: Citation
+
+    Kuan‐Wei Tang, Kuan‐Yu Chen, Da‐Yi Chen, Tai‐Lin Chin, Ting‐Yu Hsu.
+    The CWA Benchmark: A Seismic Dataset from Taiwan for Seismic Research.
+    Seismological Research Letters 2024.
+    doi: https://doi.org/10.1785/0220230393
 
 ETHZ
 -----
@@ -143,7 +204,7 @@ INSTANCE
    :align:   center
 
 
-The INSTANCE benchmark dataset is a dataset of signals comiled by the Istituto Nazionale di Geofisica e Vulcanologia
+The INSTANCE benchmark dataset is a dataset of signals compiled by the Istituto Nazionale di Geofisica e Vulcanologia
 (INGV). Containing ~1.2 million 3C waveform traces, which record ~50,000 earthquakes and include ~130,000 noise traces.
 Magnitude scale of events ranges from 0 - 6.5.
 The dataset is split for ease of use into Noise examples :py:class:`~seisbench.data.instance.InstanceNoise`,
