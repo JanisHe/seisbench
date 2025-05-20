@@ -2,35 +2,36 @@ from torch.utils.data import Dataset
 
 
 class GenericGenerator(Dataset):
+    """
+    A generic data generator which can be used to build preprocessing and data augmentation pipelines.
+    The data generator subclasses the pytorch Dataset class and can therefore be used directly with DataLoaders
+    in pytorch. The processing pipeline of the generator is defined through a series of processing steps or
+    augmentations. For each data sample, the generator calls the augmentations in order.
+    Information between the augmentation steps is passed through a state dict.
+    The state dict is a python dictionary mapping keys to a tuple (data, metadata).
+    In getitem, the generator automatically populates the initial dictionary with the waveforms
+    and the corresponding metadata for the row from the underlying data set using the key "X".
+    After applying all augmentation, the generator removes all metadata information.
+    This means that the output dict only maps keys to the data part.
+    Any metadata that should be output needs to explicitly be written to data.
+
+    Augmentation can be either callable classes of functions.
+    Functions are usually best suited for simple operations, while callable classes offer more configuration
+    options. SeisBench already offers a set of standard augmentations for augmentation and preprocessing,
+    e.g., for window selection, data normalization or different label encodings,
+    which should cover many common use cases.
+    For details on implementing custom augmentations we suggest looking at the examples provided.
+
+    SeisBench augmentations by default always work on the key "X".
+    Label generating augmentations by default put labels into the key "y".
+    However, for more complex workflows, the augmentations can be adjusted using the key argument.
+    This allows in particular none-sequential augmentation sequences.
+
+    :param dataset: The underlying SeisBench data set.
+    :type dataset: seisbench.data.WaveformDataset or seisbench.data.MultiWaveformDataset
+    """
+
     def __init__(self, dataset):
-        """
-        A generic data generator which can be used to build preprocessing and data augmentation pipelines.
-        The data generator subclasses the pytorch Dataset class and can therefore be used directly with DataLoaders
-        in pytorch. The processing pipeline of the generator is defined through a series of processing steps or
-        augmentations. For each data sample, the generator calls the augmentations in order.
-        Information between the augmentation steps is passed through a state dict.
-        The state dict is a python dictionary mapping keys to a tuple (data, metadata).
-        In getitem, the generator automatically populates the initial dictionary with the waveforms
-        and the corresponding metadata for the row from the underlying data set using the key "X".
-        After applying all augmentation, the generator removes all metadata information.
-        This means that the output dict only maps keys to the data part.
-        Any metadata that should be output needs to explicitly be written to data.
-
-        Augmentation can be either callable classes of functions.
-        Functions are usually best suited for simple operations, while callable classes offer more configuration
-        options. SeisBench already offers a set of standard augmentations for augmentation and preprocessing,
-        e.g., for window selection, data normalization or different label encodings,
-        which should cover many common use cases.
-        For details on implementing custom augmentations we suggest looking at the examples provided.
-
-        SeisBench augmentations by default always work on the key "X".
-        Label generating augmentations by default put labels into the key "y".
-        However, for more complex workflows, the augmentations can be adjusted using the key argument.
-        This allows in particular none-sequential augmentation sequences.
-
-        :param dataset: The underlying SeisBench data set.
-        :type dataset: seisbench.data.WaveformDataset or seisbench.data.MultiWaveformDataset
-        """
         self._augmentations = []
         self.dataset = dataset
         super().__init__()
@@ -84,9 +85,22 @@ class GenericGenerator(Dataset):
         return {"X": self.dataset.get_sample(idx)}
 
     def _clean_state_dict(self, state_dict):
-        # Remove all metadata from the output
-        state_dict = {k: v[0] for k, v in state_dict.items()}
-        return state_dict
+        cleaned_state_dict = {}
+
+        for k, v in state_dict.items():
+            if isinstance(v, tuple) and len(v) == 2:
+                metadata = v[1]
+                if isinstance(metadata, dict) or metadata is None:
+                    # Remove all metadata from the output
+                    cleaned_state_dict[k] = v[0]
+                else:
+                    raise ValueError(f"Metadata for key '{k}' is not a dict or None.")
+            else:
+                raise ValueError(
+                    f"Value for key '{k}' does not follow the scheme (data, metadata)."
+                )
+
+        return cleaned_state_dict
 
 
 class SteeredGenerator(GenericGenerator):
