@@ -10,5 +10,34 @@ from .lfe_detect import LFEDetect
 from .obstransformer import OBSTransformer
 from .phasenet import PhaseNet, PhaseNetLight, VariableLengthPhaseNet
 from .pickblue import PickBlue
+from .seisdae import SeisDAE
 from .skynet import Skynet
 from .team import PhaseTEAM
+
+__all__ = [
+    "BasicPhaseAE",
+    "GroupingHelper",
+    "SeisBenchModel",
+    "WaveformModel",
+    "WaveformPipeline",
+    "CRED",
+    "DeepDenoiser",
+    "DepthFinder",
+    "DepthPhaseModel",
+    "DepthPhaseNet",
+    "DepthPhaseTEAM",
+    "DeepPhasePick",
+    "DPPDetector",
+    "DPPPicker",
+    "EQTransformer",
+    "GPD",
+    "LFEDetect",
+    "OBSTransformer",
+    "PhaseNet",
+    "PhaseNetLight",
+    "VariableLengthPhaseNet",
+    "PickBlue",
+    "SeisDAE",
+    "Skynet",
+    "PhaseTEAM",
+]

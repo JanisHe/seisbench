@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Union
 
 import numpy as np
+from scipy.signal import stft
 
 import seisbench
 from seisbench import config
@@ -54,7 +55,7 @@ class SupervisedLabeller(ABC):
         :return: Label
         :rtype: numpy.ndarray
         """
-        return y
+        return
 
     @staticmethod
     def _swap_dimension_order(arr, current_dim, expected_dim):
@@ -75,8 +76,8 @@ class SupervisedLabeller(ABC):
             width_dim = int(not channel_dim)
         else:
             raise ValueError(
-                f"Only computes dimension order given 3 dimensions (NCW), "
-                f"or 2 dimensions (CW)."
+                "Only computes dimension order given 3 dimensions (NCW), "
+                "or 2 dimensions (CW)."
             )
 
         return sample_dim, channel_dim, width_dim
@@ -89,12 +90,12 @@ class SupervisedLabeller(ABC):
         ):
             if (y.sum(self.dim) > 1 + eps).any():
                 raise ValueError(
-                    f"More than one label provided. For multi_class problems, only one label can be provided per input."
+                    "More than one label provided. For multi_class problems, only one label can be provided per input."
                 )
 
         if self.label_type == "binary":
             if (y.sum(self.dim) > 1 + eps).any():
-                raise ValueError(f"Binary labels should lie within 0-1 range.")
+                raise ValueError("Binary labels should lie within 0-1 range.")
 
         for label in self.label_columns:
             if label not in metadata:
@@ -195,8 +196,8 @@ class PickLabeller(SupervisedLabeller, ABC):
 
         if any(not x.endswith("_sample") for x in label_columns.keys()):
             seisbench.logger.warning(
-                f"Found key in labeler that does not end in '_sample'. "
-                f"If your dataset uses automatic resampling, the label position might be wrong."
+                "Found key in labeler that does not end in '_sample'. "
+                "If your dataset uses automatic resampling, the label position might be wrong."
             )
 
         if model_labels:
@@ -297,9 +298,9 @@ class ProbabilisticLabeller(PickLabeller):
                         f"Labeller of shape {self.shape} is not implemented."
                     )
 
-                label_val[
-                    np.isnan(label_val)
-                ] = 0  # Set non-present pick probabilities to 0
+                label_val[np.isnan(label_val)] = (
+                    0  # Set non-present pick probabilities to 0
+                )
                 y[i, :] = np.maximum(y[i, :], label_val)
             else:
                 # Handle multi-window case
@@ -314,9 +315,9 @@ class ProbabilisticLabeller(PickLabeller):
                             f"Labeller of shape {self.shape} is not implemented."
                         )
 
-                    label_val[
-                        np.isnan(label_val)
-                    ] = 0  # Set non-present pick probabilities to 0
+                    label_val[np.isnan(label_val)] = (
+                        0  # Set non-present pick probabilities to 0
+                    )
                     y[j, i, :] = np.maximum(y[j, i, :], label_val)
 
         if self.noise_column:
@@ -772,6 +773,202 @@ class StandardLabeller(PickLabeller):
 
     def __str__(self):
         return f"StandardLabeller (label_type={self.label_type}, dim={self.dim})"
+
+
+class STFTDenoiserLabeller:
+    """
+    Create supervised labels for DeepDenoiser and SeisDAE with short-time Fourier transform (STFT).
+    Noise samples from noise_dataset are randomly selected and earthquakes waveforms are deteriorated
+    by adding randomly scaled earthquake and noise waveforms.
+
+    :param noise_dataset: Seisbench WaveformDataset that only contains noise waveforms for training.
+    :param scale: Tuple of minimum and maximum relative amplitude of the earthquake and noise waveform.
+                  Both earthquake and noise waveforms are scaled independently by using np.random.uniform.
+                  Relative amplitude is defined either by the absolute maximum or the root-mean-square of input array
+                  (see scaling_type). Default value is (0, 1).
+    :param scaling_type: Method how to find the relative amplitude of the input array. Either from the absolute maximum
+                         (peak) or from the standard deviation (std). Default is peak.
+    :param component: Component to take into account for training. Default are three components, ZNE.
+                      If DeepDenoiser/SeisDAE is only trained with a single component, use e.g., component="Z".
+                      Otherwise, DeepDenoiser/SeisDAE is trained with all components, however, noise samples are only
+                      added on same component of earthquake waveforms, i.e., on Z-component are only added noise
+                      waveforms of Z-component and so on.
+    :param input_key: Key for reading data from the state_dict. Default is "X".
+    :param noisy_output_key: Key to write noisy STFT to state_dict. Default is "X", i.e. the input data
+                             will be overwritten.
+    :param mask_key: Key for writing computed mask function to state_dict. Default is "y".
+    :param nfft: Length of the FFT used, if a zero padded FFT is desired for scipy STFT.
+                 If None, the FFT length is nperseg.
+    :param nperseg: Length of each segment for scipy STFT. Default is 60
+    :param eps: Avoiding division by zero, default is 1e-12.
+    """
+
+    def __init__(
+        self,
+        noise_dataset: seisbench.data.WaveformDataset,
+        scale: tuple[float, float] = (0, 1),
+        scaling_type: str = "peak",
+        component: str = "ZNE",
+        nfft: int = 60,
+        nperseg: int = 30,
+        eps: float = 1e-12,
+        input_key: str = "X",
+        noisy_output_key: str = "X",
+        mask_key: str = "y",
+        **kwargs,
+    ):
+        self.noise_dataset = noise_dataset
+        self.scale = scale
+        self.scaling_type = scaling_type.lower()
+
+        self.input_key = input_key
+        self.noisy_output_key = noisy_output_key
+        self.mask_key = mask_key
+        self.component = component
+        self.noise_generator = seisbench.generate.GenericGenerator(noise_dataset)
+        self.noise_samples = len(noise_dataset)
+        self.nfft = nfft
+        self.nperseg = nperseg
+        self.eps = eps
+        self.kwargs = kwargs
+
+        if self.scaling_type.lower() not in ["std", "peak"]:
+            msg = "Argument scaling_type must be either 'std' or 'peak'."
+            raise ValueError(msg)
+
+    def __call__(self, state_dict):
+        x, metadata = state_dict[self.input_key]
+
+        if self.input_key != self.noisy_output_key:
+            # Ensure data and metadata is not modified inplace unless input and output key are anyhow identical
+            metadata = copy.deepcopy(metadata)
+            x = x.copy()
+
+        # Select component if only one is given. If more than one component is given, choose random component
+        # Note, if more than one component is given, components of signal and noise are not mixed
+        if len(self.component) == 1:
+            component_idx = metadata["trace_component_order"].index(self.component)
+            metadata["trace_component_order"] = self.component
+        else:
+            component_idx = np.random.randint(0, len(self.component) - 1)
+            metadata["trace_component_order"] = self.component[component_idx]
+
+        # Select component from x and modify metadata
+        x = x[component_idx, :]
+
+        # Defining scale for earthquake and noise amplitude
+        # I.e., scale for earthquake and noise can become, for example, zero and thus either no noise or
+        # earthquake waveform exists. Using this approach, the denoiser learns better to distinguish between noise
+        # and earthquake.
+        scale_earthquake = np.random.uniform(*self.scale)
+        scale_noise = np.random.uniform(*self.scale)
+
+        # Draw random noise sample from the dataset and cut to same length as x
+        n = self.noise_generator[np.random.randint(low=0, high=self.noise_samples)]["X"]
+
+        # Select noise component
+        n = n[component_idx, :]
+
+        # Removing mean from earthquake and noise samples
+        x = x - np.mean(x, axis=-1, keepdims=True)
+        n = n - np.mean(n, axis=-1, keepdims=True)
+
+        # Normalize earthquake and noise samples
+        if self.scaling_type == "peak":
+            x = x / (np.max(np.abs(x)) + self.eps)
+            n = n / (np.max(np.abs(n)) + self.eps)
+        elif self.scaling_type == "std":
+            x = x / (np.std(x) + self.eps)
+            n = n / (np.std(n) + self.eps)
+
+        # Cutting noise to same length as x
+        if n.shape[-1] < x.shape[-1]:
+            msg = (
+                f"The length of the data ({len(x)} samples) and the noise ({len(n)} samples) must either be the same "
+                f"or the shape of the noise must be larger than the shape of the data."
+            )
+            raise ValueError(msg)
+
+        if n.shape[-1] < x.shape[-1]:
+            spoint = np.random.randint(low=0, high=len(n) - len(x))
+        else:
+            spoint = 0
+        n = n[spoint : spoint + len(x)]
+
+        # Scale earthquake (x) and noise (n) waveforms
+        x *= scale_earthquake
+        n *= scale_noise
+
+        # Add noise and signal to create noisy signal
+        noisy = x + n
+
+        # Normalize noisy, x and n by normalization factor of noisy to range [-1, 1]
+        if self.scaling_type == "peak":
+            norm_noisy = np.max(np.abs(noisy)) + self.eps
+        elif self.scaling_type == "std":
+            norm_noisy = np.std(noisy) + self.eps
+
+        # Scale earthquake, noise and noisy waveform with same scaling factor, that noisy is in range [-1, 1]
+        x = x / norm_noisy
+        n = n / norm_noisy
+        noisy = noisy / norm_noisy
+
+        # Perform STFT of x, n, and noisy
+        _, _, stft_x = stft(
+            x=x,
+            fs=metadata["trace_sampling_rate_hz"],
+            nperseg=self.nperseg,
+            nfft=self.nfft,
+            **self.kwargs,
+        )
+        _, _, stft_n = stft(
+            x=n,
+            fs=metadata["trace_sampling_rate_hz"],
+            nperseg=self.nperseg,
+            nfft=self.nfft,
+            **self.kwargs,
+        )
+        _, _, stft_noisy = stft(
+            x=noisy,
+            fs=metadata["trace_sampling_rate_hz"],
+            nperseg=self.nperseg,
+            nfft=self.nfft,
+            **self.kwargs,
+        )
+
+        # Determine output masks
+        X = np.empty(
+            shape=(2, *stft_n.shape)
+        )  # Input, i.e. real and imag part of noisy
+
+        y = np.empty(
+            shape=(2, *stft_n.shape)
+        )  # Target, i.e. masks for signal and noise
+
+        # Normalize real and imaginary parts of STFT to range [-1, 1]
+        # Normalizing real and imaginary part might distort amplitude and phase, however, from my experiences the
+        # denoising result is more accurate. If you train a SeisDAE model without normalization, don't forget to
+        # remove the normalization in the prediction (seisdae.annotate_batch_pre)
+        X[0, :, :] = stft_noisy.real / (np.max(np.abs(stft_noisy.real)) + self.eps)
+        X[1, :, :] = stft_noisy.imag / (np.max(np.abs(stft_noisy.imag)) + self.eps)
+
+        # Compute target masking function
+        y[0, :, :] = 1 / (1 + np.abs(stft_n) / (np.abs(stft_x) + self.eps))
+        y[1, :, :] = 1 - y[0, :, :]
+
+        # Replace nan values in X and y
+        X = np.nan_to_num(X)
+        y = np.nan_to_num(y)
+
+        # Update state_dicts for input and target
+        state_dict[self.noisy_output_key] = (X, metadata)
+        state_dict[self.mask_key] = (y, metadata)
+
+    def __str__(self):
+        return (
+            f"Labeller for STFT and masking functions for Denoiser "
+            f"(nfft={self.nfft}, nperseg={self.nperseg})"
+        )
 
 
 def gaussian_pick(onset, length, sigma):

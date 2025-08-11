@@ -3,6 +3,7 @@ import inspect
 import logging
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import numpy as np
@@ -574,7 +575,7 @@ def test_cut_fragments_array():
     )
     data = [np.ones((3, 10001))]
     argdict = {"overlap": 100, "sampling_rate": 100}
-    elem = (0, data[0], None)
+    elem = (UTCDateTime(), data[0], ["A", "B"])
 
     out = [x[0] for x in dummy._cut_fragments_array(elem, argdict)]
 
@@ -597,7 +598,10 @@ def test_reassemble_blocks_array():
     starts = [0, 900, 1800, 2700, 3600, 4500, 5400, 6300, 7200, 8100, 9000, 9001]
 
     for i in range(12):
-        elem = (np.ones((1000, 3)), (t0, starts[i], 12, trace_stats, 0))
+        elem = (
+            np.ones((1000, 3)),
+            ("key", t0, starts[i], 12, trace_stats, 0, 1000, (0, 1000)),
+        )
         out_elem = dummy._reassemble_blocks_array(elem, buffer, argdict)
         if out_elem is not None:
             out += [out_elem[0]]
@@ -624,7 +628,10 @@ def test_reassemble_blocks_array_stack_options():
         starts = [0, 900, 1800, 2700, 3600, 4500, 5400, 6300, 7200, 8100, 9000, 9001]
 
         for i in range(12):
-            elem = (np.ones((1000, 3)) + i, (t0, starts[i], 12, trace_stats, 0))
+            elem = (
+                np.ones((1000, 3)) + i,
+                ("key", t0, starts[i], 12, trace_stats, 0, 1000, (0, 1000)),
+            )
             out_elem = dummy._reassemble_blocks_array(elem, buffer, argdict)
             if out_elem is not None:
                 out += [out_elem[0]]
@@ -1106,6 +1113,27 @@ def test_annotate_deep_denoiser():
         assert annotations[i].data.shape == (3000,)
 
 
+@pytest.mark.parametrize("samples", [3000, 4500, 16354])
+def test_annotate_seisdae(samples):
+    stream = obspy.Stream()
+    for i, channel in zip(range(3), ["HHZ", "HHN", "HHE"]):
+        data = np.random.random(samples)
+        trace = obspy.Trace(
+            data=data,
+            header=dict(
+                sampling_rate=100, channel=channel, network="SB", station="DAE"
+            ),
+        )
+        stream += trace
+
+    model = seisbench.models.SeisDAE(in_samples=3000)
+    annotations = model.annotate(stream)
+
+    assert len(annotations) == 3
+    for i in range(3):
+        assert annotations[i].data.shape == (samples,)
+
+
 def test_eqtransformer_annotate_batch_post():
     model = seisbench.models.EQTransformer()
 
@@ -1223,8 +1251,8 @@ def test_save_load_basicphaseae(tmp_path, caplog):
     model_load_args = get_input_args(model_orig.__class__)
 
     # Test no changes to weights
-    pred_orig = model_orig.annotate(stream, sampling_rate=400)
-    pred_load = model_load.annotate(stream, sampling_rate=400)
+    model_orig.annotate(stream, sampling_rate=400)
+    model_load.annotate(stream, sampling_rate=400)
 
     # TODO: Find out why there is a single nan value in the reconstruction.
     #     for i in range(len(pred_orig)):
@@ -1491,9 +1519,10 @@ def test_list_versions(tmp_path):
         create_versions("test", ["", "2"], "{}\n")
         assert seisbench.models.GPD.list_versions("test", remote=False) == ["1", "2"]
 
-        with patch("seisbench.util.download_http") as download, patch(
-            "seisbench.util.ls_webdav"
-        ) as ls_webdav:
+        with (
+            patch("seisbench.util.download_http") as download,
+            patch("seisbench.util.ls_webdav") as ls_webdav,
+        ):
 
             def side_effect(remote_metadata_path, metadata_path, progress_bar=False):
                 # Checks correct url and writes out dummy
@@ -1540,9 +1569,10 @@ def test_ensure_weight_files(tmp_path):
     tmp_path2 = tmp_path / "2"
     tmp_path2.mkdir()
 
-    with patch("seisbench.util.download_http") as download, patch(
-        "seisbench.util.ls_webdav"
-    ) as ls_webdav:
+    with (
+        patch("seisbench.util.download_http") as download,
+        patch("seisbench.util.ls_webdav") as ls_webdav,
+    ):
 
         def side_effect(remote_path, local_path, progress_bar=False):
             # Checks correct url and writes out dummy
@@ -1572,9 +1602,10 @@ def test_ensure_weight_files(tmp_path):
     tmp_path3 = tmp_path / "3"
     tmp_path3.mkdir()
 
-    with patch("seisbench.util.download_http") as download, patch(
-        "seisbench.util.ls_webdav"
-    ) as ls_webdav:
+    with (
+        patch("seisbench.util.download_http") as download,
+        patch("seisbench.util.ls_webdav") as ls_webdav,
+    ):
 
         def side_effect(remote_path, local_path, progress_bar=False):
             # Checks correct url and writes out dummy
@@ -1602,9 +1633,10 @@ def test_ensure_weight_files(tmp_path):
     tmp_path4 = tmp_path / "4"
     tmp_path4.mkdir()
 
-    with patch("seisbench.util.download_http") as download, patch(
-        "seisbench.util.ls_webdav"
-    ) as ls_webdav:
+    with (
+        patch("seisbench.util.download_http") as download,
+        patch("seisbench.util.ls_webdav") as ls_webdav,
+    ):
 
         def side_effect(remote_path, local_path, progress_bar=False):
             with open(local_path, "w") as f:
@@ -1627,9 +1659,10 @@ def test_ensure_weight_files(tmp_path):
     tmp_path5 = tmp_path / "5"
     tmp_path5.mkdir()
 
-    with patch("seisbench.util.download_http") as download, patch(
-        "seisbench.util.ls_webdav"
-    ) as ls_webdav:
+    with (
+        patch("seisbench.util.download_http") as download,
+        patch("seisbench.util.ls_webdav") as ls_webdav,
+    ):
 
         def side_effect(remote_path, local_path, progress_bar=False):
             # Checks correct url and writes out dummy
@@ -1733,7 +1766,7 @@ def test_list_pretrained404(tmp_path):
         model_path.return_value = tmp_path
 
         def raise404(*args, **kwargs):
-            raise ValueError(f"Invalid URL. Request returned status code 404.")
+            raise ValueError("Invalid URL. Request returned status code 404.")
 
         with patch("seisbench.util.ls_webdav") as ls_webdav:
             ls_webdav.side_effect = raise404
@@ -1743,7 +1776,7 @@ def test_list_pretrained404(tmp_path):
             )
 
         def raise505(*args, **kwargs):
-            raise ValueError(f"Invalid URL. Request returned status code 505.")
+            raise ValueError("Invalid URL. Request returned status code 505.")
 
         with patch("seisbench.util.ls_webdav") as ls_webdav:
             ls_webdav.side_effect = raise505
@@ -1773,9 +1806,10 @@ def test_get_latest_docstring(tmp_path):
 
         assert seisbench.models.GPD._get_latest_docstring("test", remote=False) == "d2"
 
-        with patch("seisbench.util.download_http") as download, patch(
-            "seisbench.util.ls_webdav"
-        ) as ls_webdav:
+        with (
+            patch("seisbench.util.download_http") as download,
+            patch("seisbench.util.ls_webdav") as ls_webdav,
+        ):
 
             def side_effect(remote_path, local_path, progress_bar=False):
                 # Checks correct url and writes out dummy
@@ -1801,15 +1835,18 @@ def test_from_pretrained(tmp_path, prefill_cache, update):
         model_path.return_value = tmp_path
 
         if prefill_cache:
-            with open(tmp_path / "test.pt.v1", "wb") as fw, open(
-                tmp_path / "test.json.v1", "w"
-            ) as f:
+            with (
+                open(tmp_path / "test.pt.v1", "wb") as fw,
+                open(tmp_path / "test.json.v1", "w") as f,
+            ):
                 torch.save({}, fw)
                 f.write("{}\n")
 
-        with patch("seisbench.util.ls_webdav") as ls_webdav, patch(
-            "seisbench.models.GPD._ensure_weight_files"
-        ) as ensure_weight_files, patch("seisbench.models.GPD.load_state_dict") as _:
+        with (
+            patch("seisbench.util.ls_webdav") as ls_webdav,
+            patch("seisbench.models.GPD._ensure_weight_files") as ensure_weight_files,
+            patch("seisbench.models.GPD.load_state_dict") as _,
+        ):
             ls_webdav.return_value = ["test.json.v2", "test.pt.v2"]
 
             def write_weights(
@@ -2511,7 +2548,7 @@ def test_overlap_mismatching_records_empty():
         "network": "XX",
         "station": "STA",
         "location": "00",
-        "channel": f"HHZ",
+        "channel": "HHZ",
         "sampling_rate": 100.0,
     }
 
@@ -2581,3 +2618,102 @@ def test_fractional_sample_handling():
     ann = model.annotate(stream, blinding=(0, 0))
     for trace in ann:
         assert trace.stats.starttime == t0 + 1.0 / 1000.0
+
+
+def test_dynamic_samples():
+    class DynamicWaveformModel(seisbench.models.WaveformModel):
+        def __init__(self):
+            super().__init__(
+                component_order="ZNE",
+                output_type="array",
+                in_samples=1024,
+                pred_sample=(0, 1024),
+                labels="PSN",
+                sampling_rate=100,
+            )
+
+            self.shape_log = []
+
+            # Required for device function
+            self.layer = torch.nn.Linear(5, 5)
+
+        def forward(self, x):
+            return torch.ones((x.shape[0], 3, x.shape[-1]))
+
+        def _get_in_pred_samples(
+            self, block: np.ndarray
+        ) -> tuple[int, tuple[int, int]]:
+            in_samples = 2 ** int(
+                np.log2(block.shape[-1])
+            )  # The largest power of 2 below the block shape
+            in_samples = min(
+                max(in_samples, 2**10), 2**20
+            )  # Enforce upper and lower bounds
+            pred_sample = (0, in_samples)
+            self.shape_log.append((in_samples, pred_sample))
+            return in_samples, pred_sample
+
+        def annotate_batch_post(
+            self, batch: torch.Tensor, piggyback: Any, argdict: dict[str, Any]
+        ) -> torch.Tensor:
+            # Transpose predictions to correct shape
+            return torch.transpose(batch, -1, -2)
+
+    model = DynamicWaveformModel()
+
+    for n, target in zip(
+        [1000, 1024, 5000, 2**20, 2**22], [1024, 1024, 4096, 2**20, 2**20]
+    ):
+        header_base = {
+            "network": "XX",
+            "station": "YY",
+            "location": "",
+            "sampling_rate": model.sampling_rate,
+        }
+        stream = obspy.Stream(
+            [
+                obspy.Trace(
+                    np.random.randn(n), header={**header_base, "channel": f"HH{c}"}
+                )
+                for c in model.component_order
+            ]
+        )
+
+        ann = model.annotate(stream)
+        if n < 1024:  # Trace too short
+            assert len(ann) == 0
+        else:
+            assert len(ann) == 3
+
+            assert model.shape_log[-1] == (target, (0, target))
+
+    # Annotate mixed stream, i.e., mixed window sizes
+    header_base = {
+        "network": "XX",
+        "station": "YY",
+        "location": "",
+        "sampling_rate": model.sampling_rate,
+    }
+    stream1 = obspy.Stream(
+        [
+            obspy.Trace(
+                np.random.randn(2000), header={**header_base, "channel": f"HH{c}"}
+            )
+            for c in model.component_order
+        ]
+    )
+    header_base = {
+        "network": "XX",
+        "station": "ZZ",
+        "location": "",
+        "sampling_rate": model.sampling_rate,
+    }
+    stream2 = obspy.Stream(
+        [
+            obspy.Trace(
+                np.random.randn(10000), header={**header_base, "channel": f"HH{c}"}
+            )
+            for c in model.component_order
+        ]
+    )
+    assert len(model.annotate(stream1 + stream2)) == 6
